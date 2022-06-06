@@ -1,0 +1,27 @@
+version: '3.9'
+services:
+  portainer:
+    image: portainer/portainer-ce:2.13.1-alpine
+    container_name: portainer
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${PORTAINER_DATA_DIR:-./portainer_data}:/data
+    ports:
+      - ${PORTAINER_UI_PORT:-9443}:9443
+      - ${PORTAINER_TUNNEL_PORT:-8000}:8000
+
+  cloudflare-ddns:
+    image: oznu/cloudflare-ddns:latest
+    container_name: cloudflare-ddns
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - API_KEY=${CLOUDFLARE_API_KEY}
+      - ZONE=${CLOUDFLARE_ZONE}
+      - SUBDOMAIN=${CLOUDFLARE_SUBDOMAIN}
+      - PROXIED=true
