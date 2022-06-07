@@ -1,0 +1,8 @@
+{$CLOUDFLARE_SUBDOMAIN}.${CLOUDFLARE_ZONE}
+
+tls ${CLOUDFLARE_EMAIL} {
+  dns cloudflare {env.CLOUDFLARE_API_KEY}
+}
+
+# Not necessary, but built-in compression can speed things up a bit
+encode zstd gzip

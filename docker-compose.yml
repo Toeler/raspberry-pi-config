@@ -25,3 +25,26 @@ services:
       - ZONE=${CLOUDFLARE_ZONE}
       - SUBDOMAIN=${CLOUDFLARE_SUBDOMAIN}
       - PROXIED=true
+
+  caddy:
+    build:
+      context: .
+      dockerfile: ./caddy/Dockerfile
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80" # For HTTP -> HTTPS redirects
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile
+      - ${CADDY_DATA_DIR:-./caddy_data}:/data
+      - ${CADDY_CONFIG_DIR:-./caddy_config}:/config
+    dns:
+      - 1.0.0.3
+    healthcheck:
+        test: ["CMD", "caddy", "version"]
+
+volumes:
+  caddy_data:
+    external: true
+  caddy_config:
