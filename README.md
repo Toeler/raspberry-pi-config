@@ -1,5 +1,6 @@
 # Raspberry Pi Config
 This is the configuration that I use to run my local Raspberry Pi at home.
+It heavily uses the Docker setup from https://github.com/zilexa/Homeserver
 
 ## The main goals of this project include:
 1. Automate as much as possible.
@@ -9,8 +10,9 @@ This is the configuration that I use to run my local Raspberry Pi at home.
 1. Provide others with examples of how they can recreate a similar setup.
 
 ## Running this setup
-### Environment Variables
-To assist in configuring the environment easily, all configuration for the docker-compose.yml file are set via environment variables. Copy the an `.env.example` file and rename it to `.env` and then fill out each line with the necessary values.
+1. To assist in configuring the environment easily, all configuration for the docker-compose.yml file are set via environment variables. Copy the an `.env.example` file and rename it to `.env` and then fill out each line with the necessary values.
+1. Run `docker network create web-proxy` to create the external network
+1. Run `docker-compose up -d` to run all of the containers
 
 ## The main functionality that this configuration contains
 ### Automatic Config Reload on Push

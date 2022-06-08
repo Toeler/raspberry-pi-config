@@ -4,15 +4,67 @@ services:
     image: portainer/portainer-ce:2.13.1-alpine
     container_name: portainer
     restart: unless-stopped
+    networks: 
+      - web-proxy
     security_opt:
       - no-new-privileges:true
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ${PORTAINER_DATA_DIR:-./portainer_data}:/data
+      - $DOCKERDIR/portainer/data:/data
     ports:
-      - ${PORTAINER_UI_PORT:-9443}:9443
-      - ${PORTAINER_TUNNEL_PORT:-8000}:8000
+      - 9443:9443
+      - 8000:8000
+    labels:
+      caddy: http://docker.$LOCALDOMAIN
+      caddy.reverse_proxy: "{{upstreams 9443}}"
+      plugsy.name: Docker
+      plugsy.link: http://docker.$LOCALDOMAIN/
+      plugsy.category: System
+  
+  caddy:
+    build:
+      context: .
+      dockerfile: ./caddy/Dockerfile
+    container_name: caddy
+    restart: unless-stopped
+    networks:
+      - web-proxy
+    environment:
+      - CADDY_INGRESS_NETWORKS=web-proxy
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - $DOCKERDIR/caddy/data:/data
+      - $DOCKERDIR/caddy/config:/config
+    healthcheck:
+        test: ["CMD", "caddy", "version"]
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    labels:
+      caddy.email: $EMAIL
+      caddy_0: http://adguard.$LOCALDOMAIN
+      caddy_0.reverse_proxy: host.docker.internal:3000
+      caddy_1: http://vpn.$LOCALDOMAIN
+      caddy_1.reverse_proxy: host.docker.internal:5000
+      plugsy.name: Caddy web-proxy
+      plugsy.category: System
+  
+  plugsy:
+    container_name: plugsy
+    image: plugsy/core:7.0.0
+    restart: unless-stopped
+    networks: 
+      - web-proxy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - 8000:3000
+    labels:
+      caddy: http://my.$LOCALDOMAIN
+      caddy.reverse_proxy: "{{upstreams 3000}}}"
 
   cloudflare-ddns:
     image: oznu/cloudflare-ddns:latest
@@ -26,25 +78,170 @@ services:
       - SUBDOMAIN=${CLOUDFLARE_SUBDOMAIN}
       - PROXIED=true
 
-  caddy:
-    build:
-      context: .
-      dockerfile: ./caddy/Dockerfile
-    container_name: caddy
+  adguard:
+    container_name: adguard
+    restart: unless-stopped
+    image: adguard/adguardhome:v0.107.7
+    network_mode: host
+    volumes:
+      - $DOCKERDIR/adguard/work:/opt/adguardhome/work
+      - $DOCKERDIR/adguard/conf:/opt/adguardhome/conf
+    labels:
+      plugsy.name: AdGuard
+      plugsy.link: http://adguard.$LOCALDOMAIN/
+      plugsy.category: Privacy
+
+  unbound:
+    container_name: unbound
+    image: mvance/unbound:1.15.0
+    restart: unless-stopped
+    healthcheck:
+      interval: 5m # to test the container, change to 10s. To prevent constant logfile activity, change to a few minutes
+      timeout: 3s
+      start_period: 5s
+    networks: 
+      - unbound
+    volumes:
+      - $DOCKERDIR/unbound/forward-records.conf:/opt/unbound/etc/unbound/forward-records.conf
+    ports:
+      - 5335:53/tcp
+      - 5335:53/udp
+    labels:
+      plugsy.name: Unbound DNS
+      plugsy.parents: AdGuard
+
+  wireguard-ui:
+    container_name: wireguard-ui
+    image: ngoduykhanh/wireguard-ui:0.3.7
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    network_mode: host
+    environment:
+      SESSION_SECRET: $WGPORTALSECRET
+      WGUI_USERNAME: $USER
+      WGUI_PASSWORD: $PW
+      WGUI_CONFIG_FILE_PATH: /etc/wireguard/wg0.conf
+      WGUI_ENDPOINT_ADDRESS: $DOMAIN
+      WGUI_DNS: $WGIP
+      WGUI_PERSISTENT_KEEPALIVE: 25
+      WGUI_SERVER_INTERFACE_ADDRESSES: $WGIP/24
+      WGUI_SERVER_LISTEN_PORT: $WGPORT
+      WGUI_SERVER_POST_UP_SCRIPT: $WGPOSTUP
+      WGUI_SERVER_POST_DOWN_SCRIPT: $WGPOSTDOWN
+      WGUI_DEFAULT_CLIENT_ALLOWED_IPS: $WGIP/24
+      SMTP_HOSTNAME: $SMTP
+      SMTP_PORT: $SMTPPORT
+      SMTP_USERNAME: $SMTPUSER
+      SMTP_PASSWORD: $SMTPPASS
+      SMTP_AUTH_TYPE: LOGIN
+      EMAIL_FROM_ADDRESS: $RECIPIENT
+      EMAIL_FROM_NAME: $SMTPUSER
+    logging:
+      driver: json-file
+      options:
+        max-size: 15m
+    volumes:
+      - $DOCKERDIR/wireguard/db:/app/db
+      - /etc/wireguard:/etc/wireguard
+    labels:
+      plugsy.name: VPN Portal
+      plugsy.link: http://vpn.$LOCALDOMAIN/
+      plugsy.category: Access
+
+  prometheus:
+    image: prom/prometheus:v2.36.0
+    container_name: mon-prometheus
+    restart: always
+    networks:
+      - analytics
+    user: root
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    volumes:
+      - $DOCKERDIR/analytics/prometheus:/etc/prometheus
+      - $DOCKERDIR/analytics/prometheus_data:/prometheus
+    ports:
+      - 7000:9090 
+  alertmanager:
+    image: prom/alertmanager:v0.24.0
+    container_name: mon-alertmanager
+    networks:
+      - analytics
+    command:
+      - '--config.file=/etc/alertmanager/config.yml'
+      - '--storage.path=/alertmanager'
+    volumes:
+      - $DOCKERDIR/analytics/alertmanager:/etc/alertmanager
+    ports:
+      - 9093:9093
+  nodeexporter:
+    image: prom/node-exporter:v1.3.1
+    container_name: mon-nodeexporter
+    restart: always
+    network_mode: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    ports:
+      - 9100:9100
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.44.0
+    container_name: mon-cadvisor
+    restart: always
+    network_mode: host
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /cgroup:/cgroup:ro #doesn't work on MacOS only for Linux
+    ports:
+      - 8080:8080
+  grafana:
+    image: grafana/grafana:8.5.4
+    container_name: mon-grafana
+    networks:
+      - analytics
+    user: root
+    volumes:
+      - $DOCKERDIR/analytics/grafana/data:/var/lib/grafana
+      - $DOCKERDIR/analytics/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - $DOCKERDIR/analytics/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+    environment:
+      - GF_SECURITY_ADMIN_USER=${ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
     restart: unless-stopped
     ports:
-      - "80:80" # For HTTP -> HTTPS redirects
-      - "443:443"
-    volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile
-      - ${CADDY_DATA_DIR:-./caddy_data}:/data
-      - ${CADDY_CONFIG_DIR:-./caddy_config}:/config
-    dns:
-      - 1.0.0.3
-    healthcheck:
-        test: ["CMD", "caddy", "version"]
+      - 4000:3000
+  pushgateway:
+    image: prom/pushgateway:v1.4.3
+    container_name: mon-pushgateway
+    restart: unless-stopped
+    networks:
+      - analytics
+    ports:
+      - 9091:9091
 
-volumes:
-  caddy_data:
+networks:
+  web-proxy:
     external: true
-  caddy_config:
+  analytics:
+    driver: bridge
+  unbound:
+    driver: bridge
