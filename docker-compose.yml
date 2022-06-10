@@ -13,13 +13,12 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - $DOCKERDIR/portainer/data:/data
     ports:
-      - 9443:9443
-      - 8000:8000
+      - 9000:9000
     labels:
       caddy: http://docker.$LOCALDOMAIN
-      caddy.reverse_proxy: "{{upstreams 9443}}"
+      caddy.reverse_proxy: "{{upstreams 9000}}"
       plugsy.name: Docker
-      plugsy.link: http://docker.$LOCALDOMAIN/
+      plugsy.link: https://docker.$LOCALDOMAIN/
       plugsy.category: System
   
   caddy:
@@ -46,7 +45,7 @@ services:
     labels:
       caddy.email: $EMAIL
       caddy_0: http://adguard.$LOCALDOMAIN
-      caddy_0.reverse_proxy: host.docker.internal:3000
+      caddy_0.reverse_proxy: host.docker.internal:808
       caddy_1: http://vpn.$LOCALDOMAIN
       caddy_1.reverse_proxy: host.docker.internal:5000
       plugsy.name: Caddy web-proxy
@@ -61,10 +60,10 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
-      - 8000:3000
+      - 3000:3000
     labels:
       caddy: http://my.$LOCALDOMAIN
-      caddy.reverse_proxy: "{{upstreams 3000}}}"
+      caddy.reverse_proxy: "{{upstreams 3000}}"
 
   cloudflare-ddns:
     image: oznu/cloudflare-ddns:latest
