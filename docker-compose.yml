@@ -237,6 +237,21 @@ services:
     ports:
       - 9091:9091
 
+  actualbudget:
+    image: jlongster/actual-server:1.0.1
+    container_name: actual-budget-server
+    restart: unless-stopped
+    networks:
+      - web-proxy
+    ports:
+      - 5006:5006
+    volumes:
+      - $DOCKERDIR/actual-budget/server-files:/app/server-files
+      - $DOCKERDIR/actual-budget/user-files:/app/user-files
+    labels:
+      caddy: http://budget.$LOCALDOMAIN
+      caddy.reverse_proxy: "{{upstreams 5006}}"
+
 networks:
   web-proxy:
     external: true
